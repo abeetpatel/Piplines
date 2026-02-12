@@ -1,0 +1,99 @@
+pipeline {
+    agent any
+
+    environment {
+        // ---------- ANGULAR ----------
+        APP_DIR   = "ORSProject10-UI"
+        DIST_DIR  = "dist/P10-UI"
+
+        // ---------- TOMCAT ----------
+        TOMCAT_HOME = "D:\\Download\\apache-tomcat-9.0.97-windows-x64\\apache-tomcat-9.0.97"
+        TOMCAT_WEBAPPS = "${TOMCAT_HOME}\\webapps\\ORS"
+        TOMCAT_SERVICE = "Tomcat9"
+
+        // ---------- JAVA (IMPORTANT for Jenkins) ----------
+        JAVA_HOME = "C:\\Program Files\\Java\\jdk-11.0.15.1"
+        JRE_HOME  = "C:\\Program Files\\Java\\jdk-11.0.15.1"
+        PATH = "${JAVA_HOME}\\bin;${env.PATH}"
+    }
+
+    stages {
+
+        stage('Checkout') {
+            steps {
+                echo "📥 Cloning frontend repository..."
+                git branch: 'main',
+                    url: 'https://github.com/abeetpatel/Project-10-Frontend.git'
+            }
+        }
+
+        stage('Install Dependencies') {
+            steps {
+                dir("${APP_DIR}") {
+                    bat '''
+                    echo ---------- CLEANING ----------
+                    rmdir /s /q node_modules 2>nul
+                    del package-lock.json 2>nul
+
+                    echo ---------- INSTALLING NPM PACKAGES ----------
+                    npm install --legacy-peer-deps
+                    '''
+                }
+            }
+        }
+
+        stage('Build Angular App') {
+            steps {
+                dir("${APP_DIR}") {
+                    bat '''
+                    echo ---------- BUILDING ANGULAR ----------
+                    npx ng build --base-href /ORS/
+                    '''
+                }
+            }
+        }
+
+        stage('Deploy to Tomcat') {
+            steps {
+                bat """
+                echo ---------- DEPLOYING TO TOMCAT ----------
+
+                if exist "${TOMCAT_WEBAPPS}" (
+                    echo Removing old ORS app...
+                    rmdir /s /q "${TOMCAT_WEBAPPS}"
+                )
+
+                mkdir "${TOMCAT_WEBAPPS}"
+
+                xcopy /s /e /y "${WORKSPACE}\\${APP_DIR}\\${DIST_DIR}\\*" "${TOMCAT_WEBAPPS}"
+                """
+            }
+        }
+
+        // 🔥 MERGED FROM SECOND PIPELINE (BEST PRACTICE)
+        stage('Restart Tomcat via Windows Service') {
+            steps {
+                echo "🔁 Restarting Tomcat Service..."
+
+                bat """
+                echo Stopping Tomcat service...
+                net stop ${TOMCAT_SERVICE}
+
+                timeout /t 6 >nul
+
+                echo Starting Tomcat service...
+                net start ${TOMCAT_SERVICE}
+                """
+            }
+        }
+    }
+
+    post {
+        success {
+            echo "✅ Angular app deployed & Tomcat restarted successfully"
+        }
+        failure {
+            echo "❌ Pipeline failed – check Jenkins & Tomcat logs"
+        }
+    }
+}
